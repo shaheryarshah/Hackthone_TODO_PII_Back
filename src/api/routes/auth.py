@@ -2,21 +2,23 @@
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import SQLAlchemyError
+import logging
 
 from models.user import User
-from schemas.user import UserCreate, UserLogin, UserResponse, UserWithToken
-from schemas.auth import TokenResponse, ErrorResponse
-from schemas.auth import ErrorResponse as AuthErrorResponse
+from schemas.user import UserCreate, UserLogin, UserWithToken
+from schemas.auth import ErrorResponse
 from services.auth_service import (
     get_password_hash,
     verify_password,
-    create_access_token,
-    get_token_expiry_seconds
+    create_access_token
 )
 from database import get_db
 
-router = APIRouter(prefix="/auth", tags=["Authentication"])
+# Setup logging to catch the cause of 500 errors in your terminal
+logger = logging.getLogger(__name__)
 
+router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 @router.post(
     "/register",
@@ -24,85 +26,79 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
     status_code=status.HTTP_201_CREATED,
     responses={
         409: {"model": ErrorResponse, "description": "Email already registered"},
-        400: {"model": ErrorResponse, "description": "Validation error"},
+        500: {"model": ErrorResponse, "description": "Internal Server Error"},
     },
-    summary="Register a new user",
-    description="Creates a new user account and returns JWT token"
+    summary="Register a new user"
 )
 async def register(user_data: UserCreate, db: Session = Depends(get_db)) -> UserWithToken:
     """
-    Register a new user with email and password.
-
-    - **email**: Valid email address (must be unique)
-    - **password**: At least 8 characters
-
-    Returns user info and JWT access token.
+    Register a new user. 
+    Handles 409 Conflicts and prevents 500 crashes.
     """
-    # Check if email already exists
+    # 1. Check if email already exists to avoid 409 Conflict
     existing_user = db.query(User).filter(User.email == user_data.email).first()
     if existing_user:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Email already registered"
+            detail="Email already registered. Please login instead."
         )
 
-    # Create new user with hashed password
-    hashed_password = get_password_hash(user_data.password)
-    new_user = User(
-        email=user_data.email,
-        password_hash=hashed_password
-    )
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
+    try:
+        # 2. Hash password and create user object
+        hashed_password = get_password_hash(user_data.password)
+        new_user = User(
+            email=user_data.email,
+            password_hash=hashed_password
+        )
+        
+        # 3. Database Transaction
+        db.add(new_user)
+        db.commit()
+        db.refresh(new_user)
 
-    # Generate JWT token
-    token_data = {"sub": str(new_user.id), "email": new_user.email}
-    access_token = create_access_token(token_data)
+        # 4. Generate JWT token
+        token_data = {"sub": str(new_user.id), "email": new_user.email}
+        access_token = create_access_token(token_data)
 
-    return UserWithToken(
-        id=new_user.id,
-        email=new_user.email,
-        created_at=new_user.created_at,
-        access_token=access_token,
-        token_type="bearer"
-    )
+        return UserWithToken(
+            id=new_user.id,
+            email=new_user.email,
+            created_at=new_user.created_at,
+            access_token=access_token,
+            token_type="bearer"
+        )
 
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Database error during registration: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Database error occurred. Please try again later."
+        )
+    except Exception as e:
+        logger.error(f"Unexpected error during registration: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred on the server."
+        )
 
 @router.post(
     "/login",
     response_model=UserWithToken,
-    responses={
-        401: {"model": AuthErrorResponse, "description": "Invalid credentials"},
-    },
-    summary="Login user",
-    description="Authenticates user and returns JWT token"
+    summary="Login user"
 )
 async def login(credentials: UserLogin, db: Session = Depends(get_db)) -> UserWithToken:
-    """
-    Login with email and password.
-
-    - **email**: Registered email address
-    - **password**: User's password
-
-    Returns user info and JWT access token on success.
-    """
-    # Find user by email
+    """Authenticates user and returns JWT token."""
     user = db.query(User).filter(User.email == credentials.email).first()
-    if user is None:
+    
+    # Verify user exists and password is correct
+    if user is None or not verify_password(credentials.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password"
         )
 
-    # Verify password
-    if not verify_password(credentials.password, user.password_hash):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password"
-        )
-
-    # Generate JWT token
+    # Generate token
     token_data = {"sub": str(user.id), "email": user.email}
     access_token = create_access_token(token_data)
 
