@@ -40,13 +40,24 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# --- FIXED CORS CONFIGURATION ---
+origins = [
+    "http://localhost:3000",
+    "http://localhost:3001",
+    "http://localhost:3002",
+    "http://localhost:3006",
+    "http://localhost:3007",
+    "https://shaheryarshah.github.io", # Fixed: Removed the path and trailing slash
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001", "http://localhost:3002", "http://localhost:3006", "http://localhost:3007", "https://shaheryarshah.github.io/Hackthone2_TODO_Application_Phase_2/"],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# --------------------------------
 
 # Include auth routes
 app.include_router(auth_router, prefix="/api/v1")
@@ -104,13 +115,12 @@ def get_todos(
         sort_order=sort_order
     )
 
-    # Convert to response schema with overdue calculation
     todos_response = [_todo_to_response(todo) for todo in todos]
 
     return {
         "todos": todos_response,
         "count": len(todos_response),
-        "has_more": False  # Pagination not implemented yet
+        "has_more": False
     }
 
 
@@ -180,11 +190,6 @@ def mark_todo_complete(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """
-    Mark a todo as complete.
-    If the todo has a recurrence pattern, automatically creates the next instance.
-    Returns both the completed task and the next task (if applicable).
-    """
     service = TodoService(db, user_id=current_user.id)
     result = service.mark_complete(todo_id)
     if result is None:
@@ -208,7 +213,6 @@ def get_todos_due_soon(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Get todos due within the specified hours for reminder notifications."""
     service = TodoService(db, user_id=current_user.id)
     todos = service.get_todos_due_soon(hours=hours)
     todos_response = [_todo_to_response(todo) for todo in todos]
