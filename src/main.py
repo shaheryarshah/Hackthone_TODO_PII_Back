@@ -2,21 +2,21 @@
 import os
 import sys
 from pathlib import Path
+from contextlib import asynccontextmanager
+from datetime import datetime
+from typing import Optional
+
+from fastapi import FastAPI, Depends, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
+from dotenv import load_dotenv
 
 # Add src to path for imports
 _src_path = Path(__file__).parent
 sys.path.insert(0, str(_src_path))
 
 # Load environment variables from .env file
-from dotenv import load_dotenv
 load_dotenv(_src_path.parent / ".env")
-
-from contextlib import asynccontextmanager
-from datetime import datetime
-from typing import Optional
-from fastapi import FastAPI, Depends, HTTPException, Query
-from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
 
 from database import get_db, engine, Base
 from models.todo import Todo
@@ -29,6 +29,7 @@ from middleware.auth import get_current_user
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # This creates the database tables on startup
     Base.metadata.create_all(bind=engine)
     yield
 
@@ -41,13 +42,15 @@ app = FastAPI(
 )
 
 # --- FIXED CORS CONFIGURATION ---
+# Removed the long path from the GitHub origin. 
+# CORS only matches Protocol + Domain [+ Port].
 origins = [
     "http://localhost:3000",
     "http://localhost:3001",
     "http://localhost:3002",
     "http://localhost:3006",
     "http://localhost:3007",
-    "https://shaheryarshah.github.io", # Fixed: Removed the path and trailing slash
+    "https://shaheryarshah.github.io", 
 ]
 
 app.add_middleware(
@@ -56,6 +59,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"], # Helps browsers see headers during errors
 )
 # --------------------------------
 
@@ -196,10 +200,7 @@ def mark_todo_complete(
         raise HTTPException(status_code=404, detail="Todo not found")
 
     completed_task, next_task = result
-
-    response = {
-        "completed_task": _todo_to_response(completed_task)
-    }
+    response = {"completed_task": _todo_to_response(completed_task)}
 
     if next_task:
         response["next_task"] = _todo_to_response(next_task)
