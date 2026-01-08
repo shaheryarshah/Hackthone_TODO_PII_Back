@@ -2,28 +2,31 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
-# Import your database setup and router
+# Local imports
 from database import init_db
 from api.routes.auth import router as auth_router
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
-    init_db()
+    """
+    Application lifecycle events
+    """
+    # 🔹 Startup
+    await init_db()  # make sure init_db is async
     yield
-    # Shutdown (nothing needed)
+    # 🔹 Shutdown (optional cleanup here)
 
 
 app = FastAPI(
     title="Todo API",
-    description="Backend for TODO Application with Auth and Todos",
+    description="Backend for TODO Application with Authentication and Todos",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
-# ✅ FIXED CORS CONFIG (GitHub Pages + Localhost)
-origins = [
+# ✅ CORS Configuration (GitHub Pages + Local Development)
+ALLOWED_ORIGINS = [
     "https://shaheryarshah.github.io",
     "https://shaheryarshah.github.io/Hackthone2_TODO_Application_Phase_2",
     "http://localhost:3000",
@@ -32,15 +35,16 @@ origins = [
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,       # ❗ NO "*"
+    allow_origins=ALLOWED_ORIGINS,   # ❗ Do NOT use "*"
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Routes
+# 🔹 API Routes
 app.include_router(auth_router, prefix="/api/v1")
 
-@app.get("/")
+# 🔹 Health Check
+@app.get("/", tags=["Health"])
 async def root():
-    return {"message": "Todo API is running! 🚀"}
+    return {"status": "ok", "message": "Todo API is running 🚀"}
