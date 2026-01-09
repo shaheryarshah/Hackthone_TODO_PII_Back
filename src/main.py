@@ -42,11 +42,19 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001", "http://localhost:3002", "http://localhost:3006", "http://localhost:3007, "https://hackthone-todo-pii-front.vercel.app"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://localhost:3002",
+        "http://localhost:3006",
+        "http://localhost:3007",
+        "https://shaheryarshah.github.io",  # ✅ ADD THIS
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 # Include auth routes
 app.include_router(auth_router, prefix="/api/v1")
