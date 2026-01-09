@@ -7,34 +7,35 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 
-# 1. FIX: Handle connection string format
-DATABASE_URL = os.getenv("DATABASE_URL")
+# Support both SQLite (dev) and PostgreSQL/Neon (prod)
+_db_path = Path(__file__).parent.parent / "todos.db"
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    f"sqlite:///{_db_path}"
+)
 
-# If no environment variable is found, fallback to local SQLite
-if not DATABASE_URL:
-    _db_path = Path(__file__).parent.parent / "todos.db"
-    DATABASE_URL = f"sqlite:///{_db_path}"
-
-# FIX: SQLAlchemy requires 'postgresql://', but some providers give 'postgres://'
-if DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-
-# 2. Configure Engine
+# For SQLite development
 if DATABASE_URL.startswith("sqlite"):
     engine = create_engine(
         DATABASE_URL,
-        connect_args={"check_same_thread": False}
+        connect_args={"check_same_thread": False},
+        echo=False
     )
 else:
+    # For PostgreSQL/Neon - use psycopg2 or asyncpg
     engine = create_engine(
         DATABASE_URL,
-        pool_pre_ping=True, # Keeps connection alive
+        pool_pre_ping=True,
         pool_size=5,
-        max_overflow=10
+        max_overflow=10,
+        echo=False
     )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+# Base class for SQLAlchemy tables
 Base = declarative_base()
+
 
 def get_db() -> Generator:
     """Dependency that provides a database session."""
@@ -44,8 +45,12 @@ def get_db() -> Generator:
     finally:
         db.close()
 
+
 def init_db():
     """Initialize database tables."""
+    # Import models to ensure they're registered with Base
+    # Import Todo first since User has a relationship to it
     from models.todo import Todo  # noqa: F401
     from models.user import User  # noqa: F401
+
     Base.metadata.create_all(bind=engine)
